@@ -70,7 +70,8 @@ def _process_stories(
 
     for story in track(stories, description="Procesando historias...", console=console):
         suite_name = story.suite_name
-        if suite_name in existing_names:
+        normalized_name = suites_service.normalize_name(suite_name)
+        if normalized_name in existing_names:
             duplicated_count += 1
             records.append(
                 ReportRecord.from_outcome(
@@ -85,7 +86,7 @@ def _process_stories(
 
         try:
             suites_service.create_static_suite(plan_id, root_suite_id, suite_name)
-            existing_names.add(suite_name)
+            existing_names.add(normalized_name)
             created_count += 1
             records.append(
                 ReportRecord.from_outcome(
@@ -191,8 +192,6 @@ def main() -> int:
         )
 
         suites = suites_service.list_suites(plan_id)
-        existing_names = suites_service.suite_name_set(suites)
-        suites_existing_count = len(existing_names)
 
         plan_details = testplans_service.get_plan(plan_id)
         root_suite_id = suites_service.get_root_suite_id(plan_details, suites)
@@ -203,6 +202,12 @@ def main() -> int:
             )
             _log_and_capture_error(logger, errors, message)
             root_suite_id = -1
+
+        if root_suite_id > 0:
+            existing_names = suites_service.get_child_suite_names(plan_id, root_suite_id)
+        else:
+            existing_names = set()
+        suites_existing_count = len(existing_names)
 
         suites_created_count = 0
         if stories and root_suite_id > 0:

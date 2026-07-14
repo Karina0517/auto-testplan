@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from services.azure_connection import AzureConnection
 
@@ -21,14 +22,16 @@ class TestPlansService:
         while True:
             paged_endpoint = endpoint
             if token:
-                paged_endpoint = f"{endpoint}?continuationToken={token}"
-            response = self._connection.request("GET", paged_endpoint, add_api_version=True)
+                paged_endpoint = f"{endpoint}?continuationToken={quote(token, safe='')}"
+            response, headers = self._connection.request_with_headers(
+                "GET", paged_endpoint, add_api_version=True
+            )
             plans = response.get("value", [])
             for plan in plans:
                 if str(plan.get("name", "")).strip() == plan_name:
                     return plan
 
-            token = str(response.get("continuationToken", "")).strip()
+            token = str(headers.get("x-ms-continuationToken", "")).strip()
             if not token:
                 break
 

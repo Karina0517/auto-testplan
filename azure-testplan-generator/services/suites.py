@@ -28,12 +28,18 @@ class SuitesService:
         parent_suite_id: int,
         suite_name: str,
     ) -> dict[str, Any]:
-        """Create static suite under parent suite."""
+        """Create static suite under parent suite.
+
+        The testplan REST API (7.1) expects the parent suite in the request body
+        (``parentSuite.id``), not in the URL path. Sending it only in the path
+        leaves ``TestSuiteCreateParams.ParentSuite`` null and Azure rejects it.
+        """
         payload = {
             "suiteType": "StaticTestSuite",
             "name": suite_name,
+            "parentSuite": {"id": parent_suite_id},
         }
-        endpoint = f"/testplan/Plans/{plan_id}/suites/{parent_suite_id}"
+        endpoint = f"/testplan/Plans/{plan_id}/suites"
         return self._connection.request("POST", endpoint, payload=payload)
 
     @staticmethod
@@ -48,14 +54,47 @@ class SuitesService:
                 return int(suite["id"])
         return None
 
-    @staticmethod
-    def suite_name_set(suites: list[dict[str, Any]]) -> set[str]:
-        """Return a set of suite names for duplicate detection."""
+    def get_child_suite_names(self, plan_id: int, parent_suite_id: int) -> set[str]:
+        """Return normalized names of the direct child suites under a parent suite.
+
+        Scoping duplicate detection to the direct children of the sprint's main
+        suite guarantees exactly one child suite per user story in that location,
+        making re-runs idempotent regardless of suites that may exist elsewhere.
+        """
+        response = self._connection.request(
+            "GET",
+            f"/testplan/Plans/{plan_id}/suites?asTreeView=true",
+        )
+        raw_suites = response.get("value", [])
+        parent_node = self._find_suite_node(raw_suites, parent_suite_id)
+        children = parent_node.get("children", []) if parent_node else []
         return {
-            str(suite.get("name", "")).strip()
-            for suite in suites
-            if str(suite.get("name", "")).strip()
+            self.normalize_name(child.get("name", ""))
+            for child in children
+            if self.normalize_name(child.get("name", ""))
         }
+
+    @staticmethod
+    def normalize_name(name: str) -> str:
+        """Normalize a suite name for robust duplicate detection.
+
+        Collapses surrounding/repeated whitespace and case-folds so that minor
+        formatting differences do not lead to duplicate suites.
+        """
+        return " ".join(str(name).split()).casefold()
+
+    def _find_suite_node(
+        self,
+        suites: list[dict[str, Any]],
+        suite_id: int,
+    ) -> dict[str, Any] | None:
+        for suite in suites:
+            if suite.get("id") == suite_id:
+                return suite
+            found = self._find_suite_node(suite.get("children", []), suite_id)
+            if found is not None:
+                return found
+        return None
 
     def _flatten_suites(self, suites: list[dict[str, Any]]) -> list[dict[str, Any]]:
         flattened: list[dict[str, Any]] = []

@@ -75,6 +75,22 @@ class AzureConnection:
         add_api_version: bool = True,
     ) -> dict[str, Any]:
         """Execute HTTP request and map known errors."""
+        data, _ = self.request_with_headers(method, endpoint, payload, add_api_version)
+        return data
+
+    def request_with_headers(
+        self,
+        method: str,
+        endpoint: str,
+        payload: dict[str, Any] | None = None,
+        add_api_version: bool = True,
+    ) -> tuple[dict[str, Any], Any]:
+        """Execute HTTP request and return both the JSON body and response headers.
+
+        Azure DevOps paginated list endpoints return the continuation token in the
+        ``x-ms-continuationToken`` response header (not in the JSON body), so callers
+        that paginate need access to the headers.
+        """
         url = endpoint if endpoint.startswith("http") else f"{self._base_project_url}{endpoint}"
         if add_api_version:
             separator = "&" if "?" in url else "?"
@@ -98,12 +114,12 @@ class AzureConnection:
         self._raise_for_status(response)
 
         if not response.content:
-            return {}
+            return {}, response.headers
 
         try:
-            return response.json()
+            return response.json(), response.headers
         except ValueError:
-            return {"raw_response": response.text}
+            return {"raw_response": response.text}, response.headers
 
     @staticmethod
     def _raise_for_status(response: requests.Response) -> None:
